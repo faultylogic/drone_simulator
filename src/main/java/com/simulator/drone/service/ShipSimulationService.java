@@ -49,19 +49,21 @@ public class ShipSimulationService {
 
     private static final Logger log = LoggerFactory.getLogger(ShipSimulationService.class);
 
-    private static final double BASE_LAT              = 44.6488;
-    private static final double BASE_LON              = -62.314;
+    // Spawn centre — open Atlantic south of Halifax, well clear of the NS coastline
+    private static final double BASE_LAT              = 43.80;
+    private static final double BASE_LON              = -63.00;
     private static final double METERS_PER_DEGREE_LAT = 111_320.0;
-    private static final double SPAWN_RADIUS_METERS   = 5_000.0;
+    private static final double SPAWN_RADIUS_METERS   = 60_000.0;  // 60 km scatter radius
     private static final double MAX_MOVE_METERS       = 50.0;
     private static final int    TICK_MS               = 3000;
     private static final int    BASE_CREW             = 1_000;
 
-    // Navigable water boundary — approximate open-water operating area off Halifax approaches
-    private static final double NAV_NORTH       = 44.90;   // ~28 km north of spawn
-    private static final double NAV_SOUTH       = 44.40;   // ~28 km south of spawn
-    private static final double NAV_EAST        = -61.90;  // ~29 km east  of spawn
-    private static final double NAV_WEST        = -62.73;  // ~29 km west  of spawn
+    // Navigable water boundary — open Atlantic south of Nova Scotia, no land overlap
+    // NS south coast sits at ~44.0-44.5°N in this longitude range
+    private static final double NAV_NORTH       = 44.10;   // stays south of NS coast
+    private static final double NAV_SOUTH       = 42.50;   // open Atlantic
+    private static final double NAV_EAST        = -59.50;  // well into Sable Island Bank
+    private static final double NAV_WEST        = -66.50;  // south of Yarmouth / Gulf of Maine
     private static final double SHORE_BUFFER_KM = 1.0;     // 1 km exclusion zone from each boundary
 
     @Value("${simulator.ship-count:2}")
