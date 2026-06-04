@@ -561,7 +561,7 @@
   function setStatus(state, label) { dot.className = state; txt.textContent = label; }
 
   const client = new StompJs.Client({
-    webSocketFactory: () => new SockJS('/ws'),
+    webSocketFactory: () => new SockJS('/fleet-overview/ws'),
     reconnectDelay: 3000,
     onConnect: () => {
       setStatus('connected', 'Live');
@@ -626,7 +626,7 @@
       feedback.textContent = '';
       feedback.className   = '';
 
-      fetch('/api/fleet/config', {
+      fetch('/fleet-overview/api/fleet/config', {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ shipCount: shipCount, dronesPerShip: dronesPerShip }),
@@ -646,7 +646,7 @@
     });
 
     // Populate sliders from current server config on load
-    fetch('/api/fleet/config')
+    fetch('/fleet-overview/api/fleet/config')
       .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
       .then(function (cfg) {
         if (cfg.shipCount != null) {

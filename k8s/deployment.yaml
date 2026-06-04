@@ -54,7 +54,7 @@ spec:
           # ---- Health probes ----
           readinessProbe:
             httpGet:
-              path: /actuator/health/readiness
+              path: /fleet-overview/actuator/health/readiness
               port: 8080
             initialDelaySeconds: 20
             periodSeconds: 10
@@ -62,7 +62,7 @@ spec:
 
           livenessProbe:
             httpGet:
-              path: /actuator/health/liveness
+              path: /fleet-overview/actuator/health/liveness
               port: 8080
             initialDelaySeconds: 40
             periodSeconds: 30
@@ -70,7 +70,7 @@ spec:
 
           startupProbe:
             httpGet:
-              path: /actuator/health
+              path: /fleet-overview/actuator/health
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 5
