@@ -16,7 +16,7 @@ metadata:
 spec:
   ingressClassName: nginx
   rules:
-    - host: drone-simulator.local       # update to your hostname or IP-based nip.io address
+    - host: drone-simulator.172.18.0.2.nip.io
       http:
         paths:
           - path: /
