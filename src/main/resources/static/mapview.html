@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fleet Map</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7/bundles/stomp.umd.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d1117; color: #c9d1d9; height: 100vh; display: flex; flex-direction: column; }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .75rem 1.25rem;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      flex-shrink: 0;
+      z-index: 1000;
+    }
+
+    header h1 { font-size: 1rem; font-weight: 600; letter-spacing: .05em; color: #e6edf3; }
+
+    .header-right { display: flex; align-items: center; gap: 1.25rem; }
+
+    #drone-count { font-size: .8rem; color: #8b949e; }
+    #drone-count span { color: #e6edf3; font-weight: 600; }
+
+    #status-badge { display: flex; align-items: center; gap: .4rem; font-size: .78rem; color: #8b949e; }
+
+    #status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #3d444d; transition: background .3s;
+    }
+    #status-dot.connected  { background: #3fb950; box-shadow: 0 0 6px #3fb95066; }
+    #status-dot.connecting { background: #d29922; animation: pulse 1s infinite; }
+    #status-dot.error      { background: #f85149; }
+
+    nav { display: flex; gap: .5rem; }
+    nav a {
+      font-size: .78rem;
+      color: #8b949e;
+      text-decoration: none;
+      padding: .25rem .6rem;
+      border-radius: 5px;
+      border: 1px solid transparent;
+    }
+    nav a:hover { color: #e6edf3; border-color: #30363d; }
+    nav a.active { color: #388bfd; border-color: #388bfd44; background: #388bfd11; }
+
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.3 } }
+
+    #map { flex: 1; }
+
+    /* Override Leaflet popup to match dark theme */
+    .leaflet-popup-content-wrapper {
+      background: #161b22;
+      color: #c9d1d9;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px #00000066;
+    }
+    .leaflet-popup-tip { background: #161b22; }
+    .leaflet-popup-content { margin: .75rem 1rem; font-size: .82rem; line-height: 1.6; max-height: 60vh; overflow-y: auto; }
+
+    .popup-id { font-size: .95rem; font-weight: 700; color: #e6edf3; margin-bottom: .35rem; }
+
+    .popup-row { display: flex; justify-content: space-between; gap: 1.5rem; }
+    .popup-label { color: #484f58; font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; }
+    .popup-val { color: #adbac7; font-variant-numeric: tabular-nums; }
+
+    .status-pill {
+      display: inline-block;
+      font-size: .65rem;
+      font-weight: 600;
+      padding: .15em .5em;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: .4rem;
+    }
+    .status-FLYING    { background: #1f4a2e; color: #3fb950; }
+    .status-IDLE      { background: #1c2128; color: #8b949e; }
+    .status-TAKEOFF   { background: #2d2a1e; color: #d29922; }
+    .status-RETURNING { background: #2a1f33; color: #bc8cff; }
+    .status-LANDING   { background: #3a1c1c; color: #f85149; }
+
+    .bat-bar-bg { height: 4px; border-radius: 2px; background: #21262d; margin-top: .25rem; }
+    .bat-bar-fill { height: 100%; border-radius: 2px; transition: width .4s; }
+
+    /* Ship alert level pills */
+    .alert-NORMAL      { background: #1f4a2e; color: #3fb950; }
+    .alert-CONDITION_3 { background: #2d2a1e; color: #d29922; }
+    .alert-CONDITION_2 { background: #2a1e33; color: #bc8cff; }
+    .alert-CONDITION_1 { background: #3a1c1c; color: #f85149; }
+
+    .ship-stat-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .15rem 1.25rem;
+      margin-top: .3rem;
+    }
+    .meter-bar-bg   { height: 4px; border-radius: 2px; background: #21262d; margin-top: .15rem; }
+    .meter-bar-fill { height: 100%; border-radius: 2px; transition: width .4s; }
+
+    /* ── Fleet Control panel ──────────────────────────────────────────────── */
+    #fleet-control {
+      position: fixed;
+      top: 62px;          /* sit just below the header */
+      right: 1rem;
+      z-index: 1100;
+      width: 260px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px #00000077;
+      padding: .85rem 1rem 1rem;
+      font-size: .82rem;
+      color: #c9d1d9;
+    }
+
+    #fleet-control h2 {
+      font-size: .82rem;
+      font-weight: 700;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: #8b949e;
+      margin-bottom: .75rem;
+    }
+
+    .fc-row { margin-bottom: .65rem; }
+
+    .fc-label {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: .3rem;
+      color: #adbac7;
+      font-size: .78rem;
+    }
+
+    .fc-label span {
+      font-variant-numeric: tabular-nums;
+      color: #e6edf3;
+      font-weight: 600;
+    }
+
+    .fc-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      background: #30363d;
+      outline: none;
+      cursor: pointer;
+    }
+    .fc-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #388bfd;
+      cursor: pointer;
+      border: 2px solid #0d1117;
+      transition: background .15s;
+    }
+    .fc-slider::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #388bfd;
+      cursor: pointer;
+      border: 2px solid #0d1117;
+    }
+    .fc-slider:hover::-webkit-slider-thumb { background: #58a6ff; }
+    .fc-slider:hover::-moz-range-thumb     { background: #58a6ff; }
+
+    .fc-total {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: .4rem .55rem;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      margin-bottom: .75rem;
+      font-size: .78rem;
+      color: #8b949e;
+    }
+    .fc-total strong {
+      color: #e6edf3;
+      font-variant-numeric: tabular-nums;
+    }
+
+    #fc-apply {
+      width: 100%;
+      padding: .4rem;
+      background: #238636;
+      color: #e6edf3;
+      border: 1px solid #2ea043;
+      border-radius: 6px;
+      font-size: .8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s, border-color .15s;
+    }
+    #fc-apply:hover  { background: #2ea043; border-color: #3fb950; }
+    #fc-apply:active { background: #196c2e; }
+    #fc-apply:disabled { opacity: .55; cursor: not-allowed; }
+
+    #fc-feedback {
+      margin-top: .5rem;
+      font-size: .74rem;
+      min-height: 1.1em;
+      text-align: center;
+      transition: opacity .3s;
+    }
+    #fc-feedback.ok  { color: #3fb950; }
+    #fc-feedback.err { color: #f85149; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>&#x2708; Fleet Map</h1>
+  <div class="header-right">
+    <nav>
+      <a href="/">Dashboard</a>
+      <a href="/mapview.html" class="active">Map</a>
+    </nav>
+    <div id="drone-count">Ships: <span id="ship-count">0</span> &nbsp;|&nbsp; Drones: <span id="count">0</span></div>
+    <div id="status-badge">
+      <div id="status-dot" class="connecting"></div>
+      <span id="status-text">Connecting…</span>
+    </div>
+  </div>
+</header>
+
+<div id="map"></div>
+
+<!-- ── Fleet Control panel ──────────────────────────────────────────────── -->
+<div id="fleet-control">
+  <h2>&#x2699;&#xFE0F; Fleet Control</h2>
+
+  <div class="fc-row">
+    <div class="fc-label">Ships <span id="fc-ships-val">1</span></div>
+    <input id="fc-ships" class="fc-slider" type="range" min="1" max="100" step="1" value="1" />
+  </div>
+
+  <div class="fc-row">
+    <div class="fc-label">Drones per ship <span id="fc-dps-val">1</span></div>
+    <input id="fc-dps" class="fc-slider" type="range" min="1" max="1000" step="1" value="1" />
+  </div>
+
+  <div class="fc-total">
+    Total drones <strong id="fc-total">1</strong>
+  </div>
+
+  <button id="fc-apply">Apply</button>
+  <div id="fc-feedback"></div>
+</div>
+
+<script>
+  // ── Map setup ──────────────────────────────────────────────────────────────
+  const map = L.map('map', { zoomControl: true }).setView([44.6488, -62.314], 9);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+    maxZoom: 19,
+  }).addTo(map);
+
+  // ── Drone icon factory ─────────────────────────────────────────────────────
+  const STATUS_COLOR = {
+    FLYING:    '#3fb950',
+    IDLE:      '#8b949e',
+    TAKEOFF:   '#d29922',
+    RETURNING: '#bc8cff',
+    LANDING:   '#f85149',
+  };
+
+  function makeDroneIcon(status, heading) {
+    const color = STATUS_COLOR[status] ?? '#8b949e';
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="-14 -14 28 28">
+        <circle r="9" fill="#161b22" stroke="${color}" stroke-width="2"/>
+        <polygon points="0,-11 3,2 0,0 -3,2"
+                 fill="${color}"
+                 transform="rotate(${heading ?? 0})"/>
+      </svg>`;
+    return L.divIcon({ html: svg, className: '', iconSize: [28,28], iconAnchor: [14,14], popupAnchor: [0,-16] });
+  }
+
+  // ── Ship icon factory ──────────────────────────────────────────────────────
+  const ALERT_COLOR = {
+    NORMAL:      '#58a6ff',
+    CONDITION_3: '#d29922',
+    CONDITION_2: '#bc8cff',
+    CONDITION_1: '#f85149',
+  };
+
+  function makeShipIcon(alertLevel, heading) {
+    const color = ALERT_COLOR[alertLevel] ?? '#58a6ff';
+    // Pentagon-ish ship silhouette pointing in heading direction
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="-18 -18 36 36">
+        <circle r="13" fill="#0d1117" stroke="${color}" stroke-width="2.5"/>
+        <polygon points="0,-10 7,4 0,1 -7,4"
+                 fill="${color}"
+                 transform="rotate(${heading ?? 0})"/>
+        <circle r="3" fill="${color}" opacity="0.6"/>
+      </svg>`;
+    return L.divIcon({ html: svg, className: '', iconSize: [36,36], iconAnchor: [18,18], popupAnchor: [0,-20] });
+  }
+
+  // ── Drone popup HTML ───────────────────────────────────────────────────────
+  function dronePopupHtml(d) {
+    const batColor = d.batteryPercent > 50 ? '#3fb950' : d.batteryPercent > 20 ? '#d29922' : '#f85149';
+    return `
+      <div class="popup-id">${d.droneId}</div>
+      ${d.shipId ? `<div style="font-size:.7rem;color:#58a6ff;margin-bottom:.3rem;">&#9875; ${d.shipId}</div>` : ''}
+      <span class="status-pill status-${d.status}">${d.status}</span>
+      <div class="popup-row">
+        <div><div class="popup-label">Lat</div><div class="popup-val">${d.latitude.toFixed(5)}°</div></div>
+        <div><div class="popup-label">Lon</div><div class="popup-val">${d.longitude.toFixed(5)}°</div></div>
+      </div>
+      <div class="popup-row">
+        <div><div class="popup-label">Altitude</div><div class="popup-val">${d.altitudeMeters.toFixed(1)} m</div></div>
+        <div><div class="popup-label">Speed</div><div class="popup-val">${d.speedMps.toFixed(2)} m/s</div></div>
+      </div>
+      <div class="popup-row">
+        <div><div class="popup-label">Heading</div><div class="popup-val">${d.headingDegrees.toFixed(1)}°</div></div>
+        <div>
+          <div class="popup-label">Battery</div>
+          <div class="popup-val">${d.batteryPercent}%</div>
+          <div class="bat-bar-bg"><div class="bat-bar-fill" style="width:${d.batteryPercent}%;background:${batColor}"></div></div>
+        </div>
+      </div>
+      <div class="popup-row">
+        <div><div class="popup-label">Payload</div><div class="popup-val">${(d.payloadKg ?? 0).toFixed(2)} kg</div></div>
+      </div>`;
+  }
+
+  // ── Ship popup HTML ────────────────────────────────────────────────────────
+  function meterBar(value, color) {
+    return `<div class="meter-bar-bg"><div class="meter-bar-fill" style="width:${value.toFixed(1)}%;background:${color}"></div></div>`;
+  }
+  function metricColor(v) { return v > 60 ? '#3fb950' : v > 30 ? '#d29922' : '#f85149'; }
+
+  function opDot(val) {
+    const on = val === true || val === 1;
+    return `<span style="color:${on ? '#3fb950' : '#f85149'};font-size:.8rem;">&#9679;</span>`;
+  }
+  function sectionHdr(label) {
+    return `<div style="font-size:.65rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#484f58;margin:.55rem 0 .2rem;">${label}</div>`;
+  }
+
+  function shipPopupHtml(s) {
+    const al  = s.alertLevel ?? 'NORMAL';
+    const ac  = ALERT_COLOR[al] ?? '#58a6ff';
+    const p   = s.propulsion   ?? {};
+    const pwr = s.power        ?? {};
+    const wpn = s.weapons      ?? {};
+    const son = s.sonar        ?? {};
+    const rad = s.radar        ?? {};
+    const wat = s.waterSystems ?? {};
+    const dc  = s.damageControl ?? {};
+
+    const gt1 = p.gasTurbine1Percent ?? 0;
+    const gt2 = p.gasTurbine2Percent ?? 0;
+    const dsl = p.dieselOutputPercent ?? 0;
+    const hull = dc.hullIntegrityPercent ?? 0;
+
+    return `
+      <div class="popup-id">&#9875; ${s.shipId}</div>
+      <span class="status-pill alert-${al}" style="border:1px solid ${ac}44">${al.replace('_',' ')}</span>
+      <div class="popup-row" style="margin-top:.4rem">
+        <div><div class="popup-label">Lat</div><div class="popup-val">${s.latitude.toFixed(5)}°</div></div>
+        <div><div class="popup-label">Lon</div><div class="popup-val">${s.longitude.toFixed(5)}°</div></div>
+      </div>
+      <div class="popup-row">
+        <div><div class="popup-label">Heading</div><div class="popup-val">${(s.headingDegrees??0).toFixed(1)}°</div></div>
+        <div><div class="popup-label">Speed</div><div class="popup-val">${(s.speedKnots??0).toFixed(1)} kn</div></div>
+      </div>
+      <div class="popup-row">
+        <div><div class="popup-label">Crew</div><div class="popup-val">${s.crewActive}</div></div>
+        <div><div class="popup-label">Drones</div><div class="popup-val">${s.droneCount}</div></div>
+      </div>
+
+      ${sectionHdr('Damage Control')}
+      <div class="ship-stat-grid">
+        <div>
+          <div class="popup-label">Hull</div>
+          <div class="popup-val">${hull.toFixed(1)}%</div>
+          ${meterBar(hull, metricColor(hull))}
+        </div>
+        <div>
+          <div class="popup-label">Roll / Pitch</div>
+          <div class="popup-val">${(dc.rollDegrees??0).toFixed(1)}° / ${(dc.pitchDegrees??0).toFixed(1)}°</div>
+        </div>
+        <div>
+          <div class="popup-label">Fire Zones</div>
+          <div class="popup-val" style="color:${(dc.fireZonesActive??0)>0?'#f85149':'#3fb950'}">${dc.fireZonesActive??0}</div>
+        </div>
+        <div>
+          <div class="popup-label">Flood Zones</div>
+          <div class="popup-val" style="color:${(dc.floodZonesActive??0)>0?'#f85149':'#3fb950'}">${dc.floodZonesActive??0}</div>
+        </div>
+        <div>
+          <div class="popup-label">NBC</div>
+          <div class="popup-val" style="color:${(dc.nbcAlertLevel??'NONE')!=='NONE'?'#f85149':'#3fb950'}">${dc.nbcAlertLevel??'NONE'}</div>
+        </div>
+        <div>
+          <div class="popup-label">Ingress</div>
+          <div class="popup-val">${(dc.waterIngressLpm??0).toFixed(2)} L/m</div>
+        </div>
+      </div>
+
+      ${sectionHdr('Propulsion (CODOG)')}
+      <div class="ship-stat-grid">
+        <div>
+          <div class="popup-label">GT-1 (LM2500)</div>
+          <div class="popup-val">${gt1.toFixed(1)}%</div>
+          ${meterBar(gt1, metricColor(gt1))}
+        </div>
+        <div>
+          <div class="popup-label">GT-2 (LM2500)</div>
+          <div class="popup-val">${gt2.toFixed(1)}%</div>
+          ${meterBar(gt2, metricColor(gt2))}
+        </div>
+        <div>
+          <div class="popup-label">Diesel</div>
+          <div class="popup-val">${dsl.toFixed(1)}%</div>
+          ${meterBar(dsl, metricColor(dsl))}
+        </div>
+        <div>
+          <div class="popup-label">Gearbox</div>
+          <div class="popup-val">${(p.gearboxTempCelsius??0).toFixed(1)}°C</div>
+        </div>
+        <div>
+          <div class="popup-label">Port Shaft</div>
+          <div class="popup-val">${(p.portShaftRpm??0).toFixed(0)} RPM</div>
+        </div>
+        <div>
+          <div class="popup-label">Fuel Rate</div>
+          <div class="popup-val">${(p.fuelConsumptionLph??0).toFixed(0)} L/hr</div>
+        </div>
+      </div>
+
+      ${sectionHdr('Power (4× Allison 501-K34)')}
+      <div class="ship-stat-grid">
+        <div><div class="popup-label">Gen 1</div><div class="popup-val">${(pwr.gen1Kw??0).toFixed(0)} kW</div></div>
+        <div><div class="popup-label">Gen 2</div><div class="popup-val">${(pwr.gen2Kw??0).toFixed(0)} kW</div></div>
+        <div><div class="popup-label">Gen 3</div><div class="popup-val">${(pwr.gen3Kw??0).toFixed(0)} kW</div></div>
+        <div><div class="popup-label">Gen 4</div><div class="popup-val">${(pwr.gen4Kw??0).toFixed(0)} kW</div></div>
+        <div><div class="popup-label">Bus</div><div class="popup-val">${(pwr.busVoltageVolts??0).toFixed(1)} V</div></div>
+        <div><div class="popup-label">Freq</div><div class="popup-val">${(pwr.frequencyHz??0).toFixed(2)} Hz</div></div>
+      </div>
+
+      ${sectionHdr('Weapons')}
+      <div class="ship-stat-grid">
+        <div><div class="popup-label">Bofors 57mm</div><div class="popup-val">${opDot(wpn.bofors57mmOperational)} ${wpn.bofors57mmAmmoRounds??0} rds</div></div>
+        <div><div class="popup-label">CIWS</div><div class="popup-val">${opDot(wpn.ciswsOperational)} ${wpn.ciswsAmmoRounds??0} rds</div></div>
+        <div><div class="popup-label">Harpoon</div><div class="popup-val">${wpn.harpoonMissilesReady??0} / 8</div></div>
+        <div><div class="popup-label">VLS (ESSM)</div><div class="popup-val">${wpn.vlsEssmCellsReady??0} / 8</div></div>
+        <div><div class="popup-label">Mk46 Torp</div><div class="popup-val">${wpn.mk46TorpedoesReady??0} / 6</div></div>
+        <div><div class="popup-label">Readiness</div><div class="popup-val" style="font-size:.7rem">${wpn.readinessState??'SAFE'}</div></div>
+      </div>
+
+      ${sectionHdr('Sonar')}
+      <div class="ship-stat-grid">
+        <div><div class="popup-label">Hull (SQS-510)</div><div class="popup-val">${opDot(son.hullSonarOperational)}</div></div>
+        <div><div class="popup-label">CANTASS</div><div class="popup-val">${opDot(son.cantassTowedArrayDeployed)} ${(son.towedArrayCableOutMeters??0).toFixed(0)} m</div></div>
+        <div><div class="popup-label">Mode</div><div class="popup-val">${son.operatingMode??'PASSIVE'}</div></div>
+        <div><div class="popup-label">Contacts</div><div class="popup-val">${son.activeContactsTracked??0}</div></div>
+        <div><div class="popup-label">Range</div><div class="popup-val">${(son.detectionRangeKm??0).toFixed(1)} km</div></div>
+        <div><div class="popup-label">Noise</div><div class="popup-val">${(son.ambientNoiseDb??0).toFixed(1)} dB</div></div>
+      </div>
+
+      ${sectionHdr('Radar')}
+      <div class="ship-stat-grid">
+        <div><div class="popup-label">SPS-49 Air</div><div class="popup-val">${opDot(rad.airSearchOperational)} ${rad.airTracksDetected??0} trk</div></div>
+        <div><div class="popup-label">SPS-503 Surf</div><div class="popup-val">${opDot(rad.surfaceSearchOperational)} ${rad.surfaceTracksDetected??0} trk</div></div>
+        <div><div class="popup-label">SPG-503 FC</div><div class="popup-val">${opDot(rad.fireControlOperational)}</div></div>
+        <div><div class="popup-label">ESM Alert</div><div class="popup-val" style="color:${rad.esmAlertActive?'#f85149':'#3fb950'}">${rad.esmAlertActive ? (rad.esmBandDetected||'ALERT') : 'CLEAR'}</div></div>
+      </div>
+
+      ${sectionHdr('Water Systems')}
+      <div class="ship-stat-grid">
+        <div>
+          <div class="popup-label">Fresh Water</div>
+          <div class="popup-val">${(wat.potableFreshWaterPercent??0).toFixed(1)}%</div>
+          ${meterBar(wat.potableFreshWaterPercent??0, metricColor(wat.potableFreshWaterPercent??0))}
+        </div>
+        <div><div class="popup-label">Cooling</div><div class="popup-val">${(wat.seawaterCoolingTempCelsius??0).toFixed(1)}°C</div></div>
+        <div><div class="popup-label">Bilge</div><div class="popup-val" style="color:${(wat.bilgeWaterLevelCm??0)>10?'#f85149':'#3fb950'}">${(wat.bilgeWaterLevelCm??0).toFixed(1)} cm</div></div>
+        <div><div class="popup-label">Fire Main</div><div class="popup-val">${(wat.fireMainPressureBar??0).toFixed(1)} bar</div></div>
+        <div><div class="popup-label">Desalinator</div><div class="popup-val">${(wat.desalinatorOutputLph??0).toFixed(0)} L/hr</div></div>
+        <div>
+          <div class="popup-label">Sewage</div>
+          <div class="popup-val">${(wat.sewageTankPercent??0).toFixed(1)}%</div>
+          ${meterBar(100 - (wat.sewageTankPercent??0), metricColor(100 - (wat.sewageTankPercent??0)))}
+        </div>
+      </div>`;
+  }
+
+  // ── Marker state ───────────────────────────────────────────────────────────
+  const droneMarkers = new Map();   // droneId → L.marker
+  const shipMarkers  = new Map();   // shipId  → L.marker
+
+  function renderDrones(drones) {
+    document.getElementById('count').textContent = drones.length;
+    const seen = new Set();
+    drones.forEach(d => {
+      seen.add(d.droneId);
+      const latlng = [d.latitude, d.longitude];
+      const icon   = makeDroneIcon(d.status, d.headingDegrees);
+      if (droneMarkers.has(d.droneId)) {
+        const m = droneMarkers.get(d.droneId);
+        m.setLatLng(latlng); m.setIcon(icon);
+        if (m.isPopupOpen()) m.setPopupContent(dronePopupHtml(d));
+      } else {
+        droneMarkers.set(d.droneId,
+          L.marker(latlng, { icon }).bindPopup(dronePopupHtml(d), { maxWidth: 260 }).addTo(map));
+      }
+    });
+    droneMarkers.forEach((m, id) => { if (!seen.has(id)) { m.remove(); droneMarkers.delete(id); } });
+  }
+
+  function renderShips(ships) {
+    document.getElementById('ship-count').textContent = ships.length;
+    const seen = new Set();
+    ships.forEach(s => {
+      seen.add(s.shipId);
+      const latlng = [s.latitude, s.longitude];
+      const icon   = makeShipIcon(s.alertLevel, s.headingDegrees);
+      if (shipMarkers.has(s.shipId)) {
+        const m = shipMarkers.get(s.shipId);
+        m.setLatLng(latlng); m.setIcon(icon);
+        if (m.isPopupOpen()) m.setPopupContent(shipPopupHtml(s));
+      } else {
+        shipMarkers.set(s.shipId,
+          L.marker(latlng, { icon, zIndexOffset: 500 })
+            .bindPopup(shipPopupHtml(s), { maxWidth: 360 }).addTo(map));
+      }
+    });
+    shipMarkers.forEach((m, id) => { if (!seen.has(id)) { m.remove(); shipMarkers.delete(id); } });
+  }
+
+  // ── STOMP ──────────────────────────────────────────────────────────────────
+  const dot = document.getElementById('status-dot');
+  const txt = document.getElementById('status-text');
+
+  function setStatus(state, label) { dot.className = state; txt.textContent = label; }
+
+  const client = new StompJs.Client({
+    webSocketFactory: () => new SockJS('/ws'),
+    reconnectDelay: 3000,
+    onConnect: () => {
+      setStatus('connected', 'Live');
+      client.subscribe('/topic/drones', msg => {
+        try { renderDrones(JSON.parse(msg.body)); }
+        catch (e) { console.error('drone parse error', e); }
+      });
+      client.subscribe('/topic/ships', msg => {
+        try { renderShips(JSON.parse(msg.body)); }
+        catch (e) { console.error('ship parse error', e); }
+      });
+    },
+    onDisconnect:     () => setStatus('error', 'Disconnected'),
+    onStompError:     () => setStatus('error', 'Error'),
+    onWebSocketClose: () => setStatus('connecting', 'Reconnecting…'),
+  });
+
+  client.activate();
+
+  // ── Fleet Control panel ────────────────────────────────────────────────────
+  (function () {
+    const shipsSlider = document.getElementById('fc-ships');
+    const shipsVal    = document.getElementById('fc-ships-val');
+    const dpsSlider   = document.getElementById('fc-dps');
+    const dpsVal      = document.getElementById('fc-dps-val');
+    const totalEl     = document.getElementById('fc-total');
+    const applyBtn    = document.getElementById('fc-apply');
+    const feedback    = document.getElementById('fc-feedback');
+
+    let feedbackTimer = null;
+
+    function updateTotal() {
+      totalEl.textContent = (parseInt(shipsSlider.value, 10) * parseInt(dpsSlider.value, 10)).toLocaleString();
+    }
+
+    shipsSlider.addEventListener('input', function () {
+      shipsVal.textContent = this.value;
+      updateTotal();
+    });
+
+    dpsSlider.addEventListener('input', function () {
+      dpsVal.textContent = this.value;
+      updateTotal();
+    });
+
+    function showFeedback(message, isError) {
+      clearTimeout(feedbackTimer);
+      feedback.textContent = message;
+      feedback.className   = isError ? 'err' : 'ok';
+      if (!isError) {
+        feedbackTimer = setTimeout(function () {
+          feedback.textContent = '';
+          feedback.className   = '';
+        }, 3000);
+      }
+    }
+
+    applyBtn.addEventListener('click', function () {
+      const shipCount    = parseInt(shipsSlider.value, 10);
+      const dronesPerShip = parseInt(dpsSlider.value, 10);
+      applyBtn.disabled  = true;
+      feedback.textContent = '';
+      feedback.className   = '';
+
+      fetch('/api/fleet/config', {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ shipCount: shipCount, dronesPerShip: dronesPerShip }),
+      })
+        .then(function (res) {
+          if (!res.ok) {
+            return res.text().then(function (t) { throw new Error(t || ('HTTP ' + res.status)); });
+          }
+          showFeedback('✓ Applied', false);
+        })
+        .catch(function (err) {
+          showFeedback(err.message || 'Request failed', true);
+        })
+        .finally(function () {
+          applyBtn.disabled = false;
+        });
+    });
+
+    // Populate sliders from current server config on load
+    fetch('/api/fleet/config')
+      .then(function (res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function (cfg) {
+        if (cfg.shipCount != null) {
+          shipsSlider.value    = Math.min(Math.max(cfg.shipCount, 1), 100);
+          shipsVal.textContent = shipsSlider.value;
+        }
+        if (cfg.dronesPerShip != null) {
+          dpsSlider.value    = Math.min(Math.max(cfg.dronesPerShip, 1), 1000);
+          dpsVal.textContent = dpsSlider.value;
+        }
+        updateTotal();
+      })
+      .catch(function (err) { console.warn('Could not load fleet config:', err); });
+  })();
+</script>
+</body>
+</html>

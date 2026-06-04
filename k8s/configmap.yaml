@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: drone-simulator-config
+  labels:
+    app: drone-simulator
+data:
+  BINDPLANE_HOST: "192.168.1.190"
+  BINDPLANE_HTTP_PORT: "4317"
+  BINDPLANE_GRPC_PORT: "4318"
+  BINDPLANE_SERVICE_NAME: "drone-simulator"
+  SIMULATOR_SHIP_COUNT: "4"
+  SIMULATOR_DRONE_COUNT: "16"

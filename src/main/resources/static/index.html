@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drone Fleet — Live</title>
+  <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7/bundles/stomp.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.5rem;
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+    }
+
+    header h1 { font-size: 1.1rem; font-weight: 600; letter-spacing: .05em; color: #e6edf3; }
+
+    #status-badge {
+      display: flex;
+      align-items: center;
+      gap: .45rem;
+      font-size: .78rem;
+      font-weight: 500;
+      color: #8b949e;
+    }
+
+    #status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #3d444d;
+      transition: background .3s;
+    }
+
+    #status-dot.connected   { background: #3fb950; box-shadow: 0 0 6px #3fb95066; }
+    #status-dot.connecting  { background: #d29922; animation: pulse 1s infinite; }
+    #status-dot.error       { background: #f85149; }
+
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.3 } }
+
+    nav { display: flex; gap: .5rem; }
+    nav a {
+      font-size: .78rem;
+      color: #8b949e;
+      text-decoration: none;
+      padding: .25rem .6rem;
+      border-radius: 5px;
+      border: 1px solid transparent;
+    }
+    nav a:hover { color: #e6edf3; border-color: #30363d; }
+    nav a.active { color: #388bfd; border-color: #388bfd44; background: #388bfd11; }
+
+    .header-right { display: flex; align-items: center; gap: 1.25rem; }
+
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+      padding: 1.25rem 1.5rem;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 1rem;
+      transition: border-color .2s, box-shadow .2s;
+    }
+
+    .card.flash {
+      border-color: #388bfd66;
+      box-shadow: 0 0 0 2px #388bfd22;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: .85rem;
+    }
+
+    .drone-id {
+      font-size: .95rem;
+      font-weight: 700;
+      color: #e6edf3;
+      letter-spacing: .04em;
+    }
+
+    .status-badge {
+      font-size: .68rem;
+      font-weight: 600;
+      padding: .18em .55em;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .status-FLYING    { background: #1f4a2e; color: #3fb950; border: 1px solid #3fb95044; }
+    .status-IDLE      { background: #1c2128; color: #8b949e; border: 1px solid #30363d; }
+    .status-TAKEOFF   { background: #2d2a1e; color: #d29922; border: 1px solid #d2992244; }
+    .status-RETURNING { background: #2a1f33; color: #bc8cff; border: 1px solid #bc8cff44; }
+    .status-LANDING   { background: #3a1c1c; color: #f85149; border: 1px solid #f8514944; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: .5rem .75rem;
+    }
+
+    .metric { display: flex; flex-direction: column; gap: .15rem; }
+
+    .metric-label {
+      font-size: .65rem;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: #484f58;
+      font-weight: 600;
+    }
+
+    .metric-value {
+      font-size: .88rem;
+      color: #adbac7;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Battery bar */
+    .battery-wrap { display: flex; flex-direction: column; gap: .3rem; }
+
+    .battery-bar-bg {
+      height: 5px;
+      border-radius: 3px;
+      background: #21262d;
+      overflow: hidden;
+    }
+
+    .battery-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width .6s ease, background .6s ease;
+    }
+
+    /* Heading compass */
+    .heading-wrap { display: flex; align-items: center; gap: .4rem; }
+
+    .compass {
+      width: 18px; height: 18px;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .compass-needle {
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 2px; height: 8px;
+      background: #388bfd;
+      border-radius: 1px;
+      transform-origin: bottom center;
+      margin-left: -1px;
+      margin-top: -8px;
+      transition: transform .5s ease;
+    }
+
+    .compass-circle {
+      position: absolute;
+      inset: 0;
+      border: 1px solid #30363d;
+      border-radius: 50%;
+    }
+
+    .ts {
+      margin-top: .85rem;
+      padding-top: .6rem;
+      border-top: 1px solid #21262d;
+      font-size: .68rem;
+      color: #484f58;
+      text-align: right;
+    }
+
+    #empty {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 3rem;
+      color: #484f58;
+      font-size: .9rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>&#x2708; Drone Fleet — Live</h1>
+  <div class="header-right">
+    <nav>
+      <a href="/" class="active">Dashboard</a>
+      <a href="/mapview.html">Map</a>
+    </nav>
+    <div id="status-badge">
+      <div id="status-dot" class="connecting"></div>
+      <span id="status-text">Connecting…</span>
+    </div>
+  </div>
+</header>
+
+<div id="grid">
+  <div id="empty">Waiting for data…</div>
+</div>
+
+<script>
+  const grid = document.getElementById('grid');
+  const dot  = document.getElementById('status-dot');
+  const txt  = document.getElementById('status-text');
+
+  function setStatus(state, label) {
+    dot.className = state;
+    txt.textContent = label;
+  }
+
+  function batteryColor(pct) {
+    if (pct > 50) return '#3fb950';
+    if (pct > 20) return '#d29922';
+    return '#f85149';
+  }
+
+  function fmt(n, decimals = 4) {
+    return Number(n).toFixed(decimals);
+  }
+
+  function renderCard(drone, existing) {
+    const card = existing || document.createElement('div');
+    if (!existing) {
+      card.className = 'card';
+      card.id = 'card-' + drone.droneId;
+    }
+
+    const batColor = batteryColor(drone.batteryPercent);
+    const ts = drone.timestamp
+      ? new Date(drone.timestamp).toLocaleTimeString()
+      : '—';
+
+    card.innerHTML = `
+      <div class="card-header">
+        <span class="drone-id">${drone.droneId}</span>
+        <span class="status-badge status-${drone.status ?? 'IDLE'}">${drone.status ?? 'IDLE'}</span>
+      </div>
+      <div class="metrics">
+        <div class="metric">
+          <span class="metric-label">Latitude</span>
+          <span class="metric-value">${fmt(drone.latitude)}°</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Longitude</span>
+          <span class="metric-value">${fmt(drone.longitude)}°</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Altitude</span>
+          <span class="metric-value">${fmt(drone.altitudeMeters, 1)} m</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Speed</span>
+          <span class="metric-value">${fmt(drone.speedMps, 2)} m/s</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Heading</span>
+          <div class="heading-wrap">
+            <div class="compass">
+              <div class="compass-circle"></div>
+              <div class="compass-needle" style="transform: rotate(${drone.headingDegrees}deg)"></div>
+            </div>
+            <span class="metric-value">${fmt(drone.headingDegrees, 1)}°</span>
+          </div>
+        </div>
+        <div class="metric battery-wrap">
+          <span class="metric-label">Battery</span>
+          <span class="metric-value">${drone.batteryPercent}%</span>
+          <div class="battery-bar-bg">
+            <div class="battery-bar-fill"
+                 style="width:${drone.batteryPercent}%; background:${batColor}">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="ts">Updated ${ts}</div>
+    `;
+
+    return card;
+  }
+
+  function flash(card) {
+    card.classList.add('flash');
+    setTimeout(() => card.classList.remove('flash'), 600);
+  }
+
+  function render(drones) {
+    const empty = document.getElementById('empty');
+    if (empty) empty.remove();
+
+    const seen = new Set();
+
+    drones.forEach(drone => {
+      seen.add(drone.droneId);
+      const existing = document.getElementById('card-' + drone.droneId);
+      const card = renderCard(drone, existing);
+      if (!existing) {
+        grid.appendChild(card);
+      } else {
+        flash(card);
+      }
+    });
+
+    // Remove cards for drones no longer in the payload
+    grid.querySelectorAll('.card').forEach(card => {
+      if (!seen.has(card.id.replace('card-', ''))) card.remove();
+    });
+  }
+
+  const client = new StompJs.Client({
+    webSocketFactory: () => new SockJS('/ws'),
+    reconnectDelay: 3000,
+    onConnect: () => {
+      setStatus('connected', 'Live');
+      client.subscribe('/topic/drones', msg => {
+        try { render(JSON.parse(msg.body)); }
+        catch (e) { console.error('parse error', e); }
+      });
+    },
+    onDisconnect: () => setStatus('error', 'Disconnected'),
+    onStompError:  () => setStatus('error', 'Error'),
+    onWebSocketClose: () => setStatus('connecting', 'Reconnecting…'),
+  });
+
+  client.activate();
+</script>
+</body>
+</html>
