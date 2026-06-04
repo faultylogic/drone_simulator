@@ -6,7 +6,8 @@ metadata:
     app: drone-simulator
 spec:
   rules:
-  - http:
+  - host: drone-simulator.local
+    http:
       paths:
       - pathType: Prefix
         path: /
