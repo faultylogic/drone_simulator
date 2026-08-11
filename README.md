@@ -70,7 +70,7 @@ It provides a fast, local environment to validate Dynatrace monitoring on Kubern
              v
 +---------------------------+
 |     BindPlane Agent       |
-|  192.168.1.190:4317       |
+|  faultylogic.duckdns.org:4317       |
 |  OpenTelemetry Pipeline   |
 +---------------------------+
              |
@@ -222,7 +222,7 @@ sudo journalctl -u bindplane-op -f
 
 ### Access the UI
 
-Open `http://<host-ip>:3001` — default credentials are `admin` / `admin`.
+Open `http://faultylogic.duckdns.org:3001` — default credentials are `admin` / `admin`.
 
 > Change the default password immediately after first login.
 
@@ -255,7 +255,7 @@ Before deploying, set your BindPlane agent host and ports:
 
 ```yaml
 data:
-  BINDPLANE_HOST: "192.168.1.190"   # IP or hostname of your BindPlane agent
+  BINDPLANE_HOST: "faultylogic.duckdns.org"   # IP or hostname of your BindPlane agent
   BINDPLANE_HTTP_PORT: "4317"        # OTLP HTTP receiver port (metrics)
   BINDPLANE_GRPC_PORT: "4318"        # OTLP gRPC receiver port
   BINDPLANE_SERVICE_NAME: "drone-simulator"
@@ -273,7 +273,7 @@ kubectl logs deployment/drone-simulator | grep BindPlane
 
 Expected output:
 ```
-BindPlane metrics export configured -> http://192.168.1.190:4317/v1/metrics (HTTP)
+BindPlane metrics export configured -> http://faultylogic.duckdns.org:4317/v1/metrics (HTTP)
 Publishing metrics for OtlpMeterRegistry every 3s ...
 ```
 
@@ -301,7 +301,7 @@ kubectl apply -f k8s/
 Edit `k8s/configmap.yaml` to set your BindPlane address and desired fleet size:
 ```yaml
 data:
-  BINDPLANE_HOST: "192.168.1.190"   # your BindPlane agent IP
+  BINDPLANE_HOST: "faultylogic.duckdns.org"   # your BindPlane agent IP
   BINDPLANE_HTTP_PORT: "4317"
   BINDPLANE_GRPC_PORT: "4318"
   BINDPLANE_SERVICE_NAME: "drone-simulator"
@@ -324,7 +324,7 @@ curl -X PUT http://drone-simulator.kind.local/fleet-overview/api/fleet/config \
 
 ### Run locally (without Kubernetes)
 ```bash
-BINDPLANE_HTTP_ENDPOINT=http://192.168.1.190:4317 \
+BINDPLANE_HTTP_ENDPOINT=http://faultylogic.duckdns.org:4317 \
 SIMULATOR_SHIP_COUNT=4 \
 SIMULATOR_DRONE_COUNT=16 \
 ./mvnw spring-boot:run

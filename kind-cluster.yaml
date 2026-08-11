@@ -24,3 +24,11 @@ nodes:
   - hostPort: 443
     containerPort: 443
     protocol: TCP
+  # Zeek gateway — gRPC
+  - hostPort: 55681
+    containerPort: 55681
+    protocol: TCP
+  # Zeek gateway — HTTP
+  - hostPort: 4320
+    containerPort: 4320
+    protocol: TCP
