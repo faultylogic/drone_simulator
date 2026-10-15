@@ -21,7 +21,7 @@
     "tile_ship_map": {
       "title": "Ship Positions — Live Map",
       "type": "data",
-      "query": "timeseries {\n  latitude  = avg(`ship.latitude`),\n  longitude = avg(`ship.longitude`)\n}, by: {ship_id}, from: now()-5m\n| filter isNull(array($ship)[0]) or in(ship_id, array($ship))\n| fields ship_id,\n         latitude  = arrayLast(latitude),\n         longitude = arrayLast(longitude),\n         ship_num  = toLong(subString(ship_id, from: 5))",
+      "query": "timeseries {\n  latitude  = avg(`ship.latitude`),\n  longitude = avg(`ship.longitude`)\n}, by: {ship_id}, from: now()-5m\n| filter isNull(array($ship)[0]) or in(ship_id, array($ship))\n| fields ship_id,\n         latitude  = arrayLast(latitude),\n         longitude = arrayLast(longitude),\n         ship_num  = toLong(substring(ship_id, from: 5))",
       "visualization": "map",
       "visualizationSettings": { "colorPalette": "categorical" },
       "querySettings": { "maxResultRecords": 1000, "defaultTimeframe": "now()-5m", "maxResultMegaBytes": 100 }
@@ -29,7 +29,7 @@
     "tile_drone_map": {
       "title": "Drone Positions — Live Map",
       "type": "data",
-      "query": "timeseries {\n  latitude  = avg(`drone.latitude`),\n  longitude = avg(`drone.longitude`)\n}, by: {drone_id, ship_id}, from: now()-5m\n| filter isNull(array($ship)[0]) or in(ship_id, array($ship))\n| fields drone_id, ship_id,\n         latitude  = arrayLast(latitude),\n         longitude = arrayLast(longitude),\n         ship_num  = toLong(subString(ship_id, from: 5))",
+      "query": "timeseries {\n  latitude  = avg(`drone.latitude`),\n  longitude = avg(`drone.longitude`)\n}, by: {drone_id, ship_id}, from: now()-5m\n| filter isNull(array($ship)[0]) or in(ship_id, array($ship))\n| fields drone_id, ship_id,\n         latitude  = arrayLast(latitude),\n         longitude = arrayLast(longitude),\n         ship_num  = toLong(substring(ship_id, from: 5))",
       "visualization": "map",
       "visualizationSettings": { "colorPalette": "categorical" },
       "querySettings": { "maxResultRecords": 1000, "defaultTimeframe": "now()-5m", "maxResultMegaBytes": 100 }
